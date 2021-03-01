@@ -3,15 +3,14 @@
 @(require
   "../assignment/assignment-mlang.rkt"
   scriblib/figure
-  #;(for-label cpsc411/reference/a6-solution)
+  (for-label cpsc411/reference/a6-solution)
   (for-label (except-in cpsc411/compiler-lib compile))
-  (for-label (rename-in cpsc411/reference/a5-solution
-                        [check-values-lang v5:check-values-lang]))
   cpsc411/langs/v2
   cpsc411/langs/v3
   cpsc411/langs/v4
   cpsc411/langs/v5
-  cpsc411/langs/v6)
+  cpsc411/langs/v6
+  (for-label cpsc411/langs/v6))
 
 @(provide (all-defined-out))
 
@@ -20,8 +19,7 @@
 @(define sb
    (make-cached-eval
     "ch6-eval"
-    '(require racket/pretty cpsc411/v1-reference/a6-solution cpsc411/compiler-lib)
-    '(current-stack-size 512)))
+    '(require racket/pretty cpsc411/reference/a6-solution cpsc411/compiler-lib)))
 
 @define[v6-graph
 @dot->svg{
@@ -38,33 +36,22 @@ L2 [label="Proc-imp-mf-lang v6"];
 L3 [label="Imp-mf-lang v6"];
 L4 [label="Imp-cmf-lang v6"];
 L5 [label="Asm-pred-lang v6"];
-L10 [label="Para-asm-lang v6"];
+L6 [label="Asm-pred-lang v6/locals"];
+L7 [label="Asm-pred-lang v6/undead"];
+L8 [label="Asm-pred-lang v6/conflicts"];
+L81 [label="Asm-pred-lang v6/pre-framed"];
+L82 [label="Asm-pred-lang v6/framed"];
+L83 [label="Asm-pred-lang v6/spilled"];
+L9 [label="Asm-pred-lang v6/assignments"];
+L10 [label="Nested-asm-lang-fvars v6"];
+L10_1 [label="Nested-asm-lang v6"];
 L11 [label="Block-pred-lang v6"];
 L12 [label="Block-asm-lang v6"];
-L13 [label="Paren-x64-fvars v6"];
+L12_1 [label="Para-asm-lang v6"];
 L14 [label="x64"];
 L15 [label="integer"]
 
 /* Register allocator */
-
-subgraph DoNotcluster0 {
-  graph [labeljust=right,
-    style=filled,
-    color=lightgrey,
-    fontname="Courier",
-    fontsize=12,
-    label = "assign-homes-opt";
-  ];
-  edge [fontname="Courier", fontsize=10]
-
-  L6 [label="Asm-pred-lang v6/locals"];
-  L7 [label="Asm-pred-lang v6/undead"];
-  L8 [label="Asm-pred-lang v6/conflicts"];
-  L81 [label="Asm-pred-lang v6/pre-framed"];
-  L82 [label="Asm-pred-lang v6/framed"];
-  L83 [label="Asm-pred-lang v6/spilled"];
-  L9 [label="Asm-pred-lang v6/assignments"];
-}
 
 edge [fontname="Courier", fontsize=12, labeljust=right]
 
@@ -77,9 +64,6 @@ L82 -> L83 [label=" assign-registers"];
 L83 -> L9 [label=" assign-frame-variables"];
 L9 -> L10 [label=" replace-locations"];
 
-L5 -> L10 [label=" assign-homes-opt"];
-
-
 L0 -> L0 [label=" check-values-lang"];
 L0 -> L1 [label=" uniquify"];
 L1 -> L2 [label=" sequentialize-let"];
@@ -87,10 +71,11 @@ L2 -> L3 [label=" impose-calling-conventions"]
 L3 -> L4 [label=" canonicalize-bind"];
 L4 -> L5 [label=" select-instructions"];
 
-L10 -> L11 [label=" expose-basic-blocks"];
+L10 -> L10_1 [label=" implement-fvars"];
+L10_1 -> L11 [label=" expose-basic-blocks"];
 L11 -> L12 [label=" resolve-predicates"]
-L12 -> L13 [label=" patch-instructions"];
-L13 -> L16 [label=" implement-fvars"];
+L12 -> L12_1 [label=" flatten-program"];
+L12_1 -> L16 [label=" patch-instructions"];
 L16 -> L14 [label=" generate-x64"];
 L14 -> L15 [label=" execute"];
 
@@ -281,12 +266,12 @@ address} stored in @racket[aloc_tmp-ra].
 generate:
 @racketblock[
 `(begin
-  (set! ,tmp-rp ,(current-return-address-register))
+  (set! ,tmp-ra ,(current-return-address-register))
   ,entry)
 ]
 where:
 @itemlist[
-@item{@racket[tmp-ra] is a fresh @tech{abstract location} used to store the
+@item{@racket[tmp-ra] is a fresh @ch2-tech{abstract location} used to store the
 @tech{return address} for this @tech{entry point}.}
 ]
 }
@@ -561,7 +546,8 @@ another @imp-mf-lang-v6[return-point], @ie there are no nested
 @imp-mf-lang-v6[return-point]s.
 Our compiler can never generate this code, and there is no reason to support.
 
-@imp-mf-lang-v5[halt] disappears our intermediate languages.
+The implicit return value, @imp-mf-lang-v6[value] in @imp-mf-lang-v6[tail]
+position, is no longer a valid.
 Instead, the run-time system will setup the first return address, and the final
 result is returned to the run-time system using the @tech{calling conventions}.
 The run-time system initializes the @racket[current-return-address-register] to
@@ -605,9 +591,9 @@ After implementing the calling conventions, we have two abstractions that we
 need to implement.
 
 First, we must implement frames, or more specifically, a @tech{stack of frames}
-(also know as a @tech{stack}).
-@tech{Non-tail calls} cannot reuse their frame since some @tech{abstract
-locations} may be @tech{live} (will be @tech{undead}) after the call.
+(also known as a @tech{stack}).
+@tech{Non-tail calls} cannot reuse their frame since some @ch2-tech{abstract
+locations} may be @ch-ra-tech{live} (will be @ch-ra-tech{undead}) after the call.
 In general, there will not be enough registers to keep them all around, so we
 store them on the frame.
 But if the caller starts writing to the frame, it would overwrite live values.
@@ -616,9 +602,9 @@ So we need to install a new frame for the caller before executing the
 We've already collected the new frame variables, and we need to modify the
 register allocator to determine the size and allocate new frames.
 This requires explicitly manipulating the frame base pointer, which also changes
-how @tech{frame variables} are implemented.
+how @ch2-tech{frame variables} are implemented.
 
-Second, we need to implement @imp-mf-lang-v6[return-points].
+Second, we need to implement @imp-mf-lang-v6[return-point]s.
 These will be compiled to raw labels, so we essentially preserve them until a
 low-level language with access to raw labels.
 
@@ -669,11 +655,11 @@ our new abstractions.
 
 First, we extend @racket[canonicalize-bind].
 We define @deftech{Imp-cmf-lang v6} below.
-We typeset the differences compared to @tech{Imp-cmf-lang v5}.
+We typeset the differences compared to @ch5-tech{Imp-cmf-lang v5}.
 
 @bettergrammar*-diff[imp-cmf-lang-v5 imp-cmf-lang-v6]
 
-We simply extend @tech{Imp-cmf-lang v5} with our new abstractions, including
+We simply extend @ch5-tech{Imp-cmf-lang v5} with our new abstractions, including
 @tech{non-tail calls} and return points.
 We also require the @imp-cmf-lang-v6[new-frames] declaration in the @imp-cmf-lang-v6[info] field.
 
@@ -702,7 +688,7 @@ This canonicalizes @tech{Imp-mf-lang v6} with respect to the equations:
 Next we impose some of the machine restrictions on our language with
 @racket[select-instructions].
 We define @deftech{Asm-pred-lang v6} below, with changes typeset with respect to
-@tech{Asm-pred-lang v5}.
+@ch5-tech{Asm-pred-lang v5}.
 
 @bettergrammar*-diff[asm-pred-lang-v5 asm-pred-lang-v6]
 
@@ -723,7 +709,7 @@ operations of the source language.
 We first extend @racket[uncover-locals] to find locals in non-tail calls and
 return points.
 Below we define @deftech{Asm-pred-lang-v6/locals}.
-We typeset changes compared to @tech{Asm-pred-lang-v5/locals}.
+We typeset changes compared to @ch5-tech{Asm-pred-lang v5/locals}.
 
 @bettergrammar*-diff[asm-pred-lang-v5/locals asm-pred-lang-v6/locals]
 
@@ -751,18 +737,18 @@ and remove variables from the set as they are assigned.
 }
 
 Next we extend @racket[undead-analysis].
-We desgin @deftech{Asm-pred-lang-v6/undead} below, typeset with respect to @tech{Asm-pred-lang-v5/undead}.
+We desgin @deftech{Asm-pred-lang-v6/undead} below, typeset with respect to @ch5-tech{Asm-pred-lang v5/undead}.
 
 @bettergrammar*-diff[asm-pred-lang-v5/undead asm-pred-lang-v6/undead]
 
-We add two new @asm-pred-lang-v6[info] fields: @asm-pred-lang-v6[undead-out] and @asm-pred-lang-v6[call-undead].
-The @asm-pred-lang-v6[undead-out] field will continue to store the
-@tech{undead-set-tree}, which we must updated to track
+We add two new @asm-pred-lang-v6[info] fields: @asm-pred-lang-v6/undead[undead-out] and @asm-pred-lang-v6/undead[call-undead].
+The @asm-pred-lang-v6/undead[undead-out] field will continue to store the
+@ch-ra-tech{undead-set tree}, which we must updated to track
 @asm-pred-lang-v6[return-point]s.
-The @asm-pred-lang-v6[call-undead] is the set of all locations that are live
+The @asm-pred-lang-v6/undead[call-undead] is the set of all locations that are live
 after @emph{any} non-tail call in a block.
 
-The @asm-pred-lang-v6[call-undead] field stores @emph{every}
+The @asm-pred-lang-v6/undead[call-undead] field stores @emph{every}
 abstract location or frame variable that is in the undead-out set of a return
 point.
 These must be allocated separately from other other variables, so we store them
@@ -803,11 +789,6 @@ There are three kinds of sub-trees:
 }
 
 @racketblock[
-(define (undead-set? x)
-  (and (list? x)
-       (andmap loc? x)
-       (= (set-count x) (length x))))
-
 (define (undead-set-tree? ust)
   (match ust
     (code:comment "for an instruction")
@@ -820,13 +801,6 @@ There are three kinds of sub-trees:
     [`(,(? undead-set-tree?) ...) #t]
     [else #f]))
 ]
-
-The @asm-pred-lang-v6[undead-set-tree] corresponding to a
-@asm-pred-lang-v6[begin] can
-have as elements either @asm-pred-lang-v6[undead-sets], for @asm-pred-lang-v6[set!]
-instructions, or @asm-pred-lang-v6[undead-set-trees] for @asm-pred-lang-v6[return-point]
-instructions.
-
 
 Analyzing non-tail jumps is no different than other jumps; we reuse the
 "arguments" annotated on the jump as the undead-out set, and discard the
@@ -842,51 +816,47 @@ We model this as treating a @asm-pred-lang-v6[return-point] as assigning the
 @nested[#:style 'inset
 @defproc[(undead-analysis (p asm-pred-lang-v6/locals?))
           asm-pred-lang-v6/undead?]{
-Performs @tech{undead analysis}, compiling @tech{Asm-pred-lang v6/locals} to
-@tech{Asm-pred-lang v6/undead} by decorating programs with their @a3-tech{undead
-set trees}.
+Performs undead analysis, compiling @tech{Asm-pred-lang v6/locals} to
+@tech{Asm-pred-lang v6/undead} by decorating programs with their
+@ch-ra-tech{undead-set trees}.
 }
 ]
-
-@todo{
-hint:
-
-The simplest way to get the @object-code{call-undead} locations is to use a
-single mutable variable that is local to the helper function that processes
-@object-code{b}s.
-Since the helper for instructions will need access to it, essentially all the
-helpers must be locally defined in the helper for @object-code{b}.
-}
 
 @examples[#:eval sb
 (pretty-display
  ((compose
    undead-analysis
    uncover-locals
-   select-instructions)
+   select-instructions
+   canonicalize-bind
+   impose-calling-conventions
+   sequentialize-let)
   '(module
      (define L.swap.1
        (lambda (x.1 y.2)
          (if (< y.2 x.1)
              x.1
-             (let ([z.3 (apply L.swap.1 y.2 x.1)])
+             (let ([z.3 (call L.swap.1 y.2 x.1)])
                z.3))))
-     (apply L.swap.1 1 2))))
+     (call L.swap.1 1 2))))
 
 (parameterize ([current-parameter-registers '()])
   (pretty-display
    ((compose
      undead-analysis
      uncover-locals
-     select-instructions)
+     select-instructions
+     canonicalize-bind
+     impose-calling-conventions
+     sequentialize-let)
     '(module
        (define L.swap.1
          (lambda (x.1 y.2)
            (if (< y.2 x.1)
                x.1
-               (let ([z.3 (apply L.swap.1 y.2 x.1)])
+               (let ([z.3 (call L.swap.1 y.2 x.1)])
                  z.3))))
-       (apply L.swap.1 1 2)))))
+       (call L.swap.1 1 2)))))
 
 ]
 
@@ -898,15 +868,9 @@ edge cases.
 (pretty-display
  (undead-analysis
   '(module
-     (define L.main.5
-       ((new-frames ()) (locals (ra.12)))
-       (begin
-         (set! ra.12 r15)
-         (set! fv0 5)
-         (set! r15 ra.12)
-         (jump L.fact.4 rbp r15 fv0)))
+     ((new-frames ()) (locals (ra.12)))
      (define L.fact.4
-       ((new-frames (nfv.16))
+       ((new-frames ((nfv.16)))
         (locals (ra.13 x.9 tmp.14 tmp.15 new-n.10 nfv.16 factn-1.11 tmp.17)))
        (begin
          (set! x.9 fv0)
@@ -915,7 +879,8 @@ edge cases.
              (begin (set! rax 1) (jump ra.13 rbp rax))
              (begin
                (set! tmp.14 -1)
-               (set! tmp.15 (+ x.9 tmp.14))
+               (set! tmp.15 x.9)
+               (set! tmp.15 (+ tmp.15 tmp.14))
                (set! new-n.10 tmp.15)
                (return-point
                    L.rp.6
@@ -924,19 +889,31 @@ edge cases.
                    (set! r15 L.rp.6)
                    (jump L.fact.4 rbp r15 nfv.16)))
                (set! factn-1.11 rax)
-               (set! tmp.17 (* x.9 factn-1.11))
+               (set! tmp.17 x.9)
+               (set! tmp.17 (* tmp.17 factn-1.11))
                (set! rax tmp.17)
-               (jump ra.13 rbp rax))))))))
+               (jump ra.13 rbp rax)))))
+     (begin
+       (set! ra.12 r15)
+       (set! fv0 5)
+       (set! r15 ra.12)
+       (jump L.fact.4 rbp r15 fv0)))))
 ]
+
+Next we update the @racket[conflict-analysis].
+Below, we define @deftech{Asm-pred-lang v6/conflicts}, typeset with differences
+compared to @ch5-tech{Asm-pred-lang v5/conflicts}.
+
+@bettergrammar*-diff[asm-pred-lang-v5/conflicts asm-pred-lang-v6/conflicts]
 
 We need to assign the new-frame variables to frame locations.
 However, we also reuse frame locations when possible, to minimize the size of
 frame and thus memory usage.
 @todo{Don't we also need to include all physical locations in conflicts?}
 
-This is simple to solve.
+This is straightforward to solve.
 We run @racket[conflict-analysis], but also collect conflicts between
-@tech{abstract locations} and @tech{physical locations}.
+@ch2-tech{abstract locations} and @tech{physical locations}.
 
 Recall that that @racket[current-return-value-register] is assigned by a non-tail call.
 Also note that @racket[current-frame-base-pointer-register] and
@@ -945,9 +922,9 @@ everything, even though we have removed them from the
 @racket[current-assignable-registers] set.
 
 The interpretation of the conflict graph will be somewhat more difficult than in
-prior assignments.
-It might contain conflicts for physical locations, which will never matter since
-we don't try to physical locations.
+prior versions.
+It might contain conflicts between physical locations, which will never matter
+since we don't try to assign physical locations.
 @;The code will be extremely similar to @racket[register-conflict-analysis], and
 @;you might want to design a single function that abstracts each.
 
@@ -957,22 +934,22 @@ we don't try to physical locations.
 @margin-note{If we our frame allocation was more clever, we would need to adjust
 the conflict analysis to make all caller saved registers in conflict with a
 non-tail call.
-However, we just assign all call-undead variables to the frame, so we don't
+However, we instead assign all call-undead variables to the frame, so we don't
 need to do very much for non-tail calls.
 }
 
 @nested[#:style 'inset
 @defproc[(conflict-analysis (p asm-pred-lang-v6/undead?))
           asm-pred-lang-v6/conflicts?]{
-Performs @a3-tech{conflict analysis}, compiling @tech{Asm-pred-lang v6/undead}
+Performs conflict analysis, compiling @tech{Asm-pred-lang v6/undead}
 to @tech{Asm-pred-lang v6/conflicts} by decorating programs with their
-@a3-tech{conflict graph}.
+conflict graph.
 }
 ]
 
 @subsection{Frame Allocation}
 
-@todo{This probably belong earlier, before unead and conflict analysis, because
+@todo{This probably belong earlier, before undead and conflict analysis, because
 this design motives those changes.}
 
 The size of a frame @racket[n] (in slots) for a given @tech{non-tail call} is
@@ -1019,7 +996,7 @@ where:
 @itemlist[
 
 @item{@racket[nb] is the number of bytes required to save @racket[n] slots on
-the frame, @ie @racket[(* n word-size-bytes)].}
+the frame, @ie @racket[(* n (current-word-size-bytes))].}
 
 @item{@racket[fbp] is the value of the parameter
 @racket[current-frame-base-pointer-register].}
@@ -1119,19 +1096,22 @@ to frame locations.
 (parameterize ([current-parameter-registers '()])
   (pretty-display
    ((compose
-     pre-assign-frame-variables
+     assign-call-undead-variables
      conflict-analysis
      undead-analysis
      uncover-locals
-     select-instructions)
+     select-instructions
+     canonicalize-bind
+     impose-calling-conventions
+     sequentialize-let)
     '(module
        (define L.swap.1
          (lambda (x.1 y.2)
            (if (< y.2 x.1)
                x.1
-               (let ([z.3 (apply L.swap.1 y.2 x.1)])
+               (let ([z.3 (call L.swap.1 y.2 x.1)])
                  z.3))))
-       (apply L.swap.1 1 2)))))
+       (call L.swap.1 1 2)))))
 ]
 
 Now we can allocate frames for each non-tail call.
@@ -1144,17 +1124,20 @@ To adjust the callee's frame, we transform @racket[`(return-point ,rp ,tail)]
 into
 @racketblock[
 `(begin
-   (set! ,fbp (+ ,fbp ,nb))
+   (set! ,fbp (- ,fbp ,nb))
    (return-point ,rp ,tail)
-   (set! ,fbp (- ,fbp ,nb)))
+   (set! ,fbp (+ ,fbp ,nb)))
 ]
 where:
 @itemlist[
 @item{@racket[nb] is the number of bytes required to save @racket[n] slots on
-the frame, @ie @racket[(* n word-size-bytes)].
+the frame, @ie @racket[(* n (current-word-size-bytes))].
 }
 @item{@racket[fbp] is @racket[(current-frame-base-pointer-register)].}
 ]
+Recall that the stack grows downward, so we @emph{subtract} @racket[nb] bytes
+from the current frame base pointer to allocate a frame of with @racket[n]
+slots.
 
 @margin-note{We could allocate a different sized frame for each call, but this
 would require associating @asm-pred-lang-v6/pre-framed[call-undead] sets with
@@ -1191,20 +1174,23 @@ to frame variables in the new frame.
 (parameterize ([current-parameter-registers '()])
   (pretty-display
    ((compose
-     assign-frames
-     pre-assign-frame-variables
+     allocate-frames
+     assign-call-undead-variables
      conflict-analysis
      undead-analysis
      uncover-locals
-     select-instructions)
+     select-instructions
+     canonicalize-bind
+     impose-calling-conventions
+     sequentialize-let)
     '(module
        (define L.swap.1
          (lambda (x.1 y.2)
            (if (< y.2 x.1)
                x.1
-               (let ([z.3 (apply L.swap.1 y.2 x.1)])
+               (let ([z.3 (call L.swap.1 y.2 x.1)])
                  z.3))))
-       (apply L.swap.1 1 2)))))
+       (call L.swap.1 1 2)))))
 ]
 
 @examples[#:eval sb
@@ -1214,15 +1200,25 @@ to frame variables in the new frame.
      conflict-analysis
      undead-analysis
      uncover-locals
-     select-instructions)
+     select-instructions
+     canonicalize-bind
+     impose-calling-conventions
+     sequentialize-let)
     '(module
        (define L.swap.1
          (lambda (x.1 y.2)
            (if (< y.2 x.1)
                x.1
-               (let ([z.3 (apply L.swap.1 y.2 x.1)])
+               (let ([z.3 (call L.swap.1 y.2 x.1)])
                  z.3))))
-       (apply L.swap.1 1 2)))))]
+       (call L.swap.1 1 2)))))]
+
+
+Because the frame allocator sits in the middle of our register allocation
+pipeline, the optimized eallocator @racket[assign-homes-opt] is no longer a drop-in
+replacement for the naive @racket[assign-homes].
+We therefore remove @racket[assign-homes-opt] and in-line the passes in the
+@racket[current-pass-list].
 
 @subsection{Adjusting the Register Allocator}
 Frames are now implemented and all new-frame variables and variables live across
@@ -1237,41 +1233,6 @@ A separate pass (which looks suspiciously like
 @racket[assign-call-undead-variables]) handles spilling.
 
 @todo{This commented out discussion?!}
-@;We must also remove an extra register from the
-@;@racket[current-assignable-registers].
-@;Since we now have non-tail calls and indirect calls, @asm-pred-lang-v6[rax]
-@;cannot be used both as a temporary register and as the return value.
-@;There are situations where we need a temporary register, but @object-code{rax}
-@;is live.
-@;Consider this expression:
-@;@racketblock[
-@;`(begin
-@;   (return-point L.rp.1
-@;     ...)
-@;   (set! factn-1.11 rax)
-@;   (set! tmp.17 (* x.9 factn-1.11))
-@;   (set! rax tmp.17)
-@;   (jump ra.13 rbp rax))
-@;]
-@;The return address is stored in @racket[ra.13], but because it is
-@;@object-code{call-undead}, it is assigned to a frame location.
-@;@racket[patch-instructions] will need to move the value to a register, since
-@;@tt{jmp} in @a0-tech{x64} cannot jump to a memory address.
-@;However, it cannot use @object-code{rax} as a temporary register, since it would
-@;be in conflict with anything assigned directly before the jump.
-@;Suddenly, @racket[patch-instructions] has a register allocation problem!
-@;
-@;The simplest solution is to reserve extra registers, forbidding the register
-@;allocator from using them, and using these temporary registers, as we did
-@;before.
-@;@margin-note*{In fact, we need two temporary registers now, due to an edge case
-@;introduced in @secref[#:tag-prefixes '("a4:")]{top} when we changed
-@;@a4-tech{Paren-asm v2}.
-@;Consider an instruction like @object-code{(set! (rbp + 0) (+ (rbp + 8)
-@;2147483648))}.}
-@;We define two temporary registers in the parameter
-@;@racket[current-patch-instructions-registers] in @share{a6-compiler-lib.rkt},
-@;which defaults to @racket['#,(current-patch-instructions-registers)].
 @;@digression{A more general solution that will produce better code in general is
 @;to run the undead and conflict analysis, register allocator, spilling, and patch
 @;instructions in a giant fixed point iteration.
@@ -1296,9 +1257,9 @@ We typeset the differences with respect to @tech{Asm-pred-lang-v6/framed}.
 @nested[#:style 'inset
 @defproc[(assign-registers (p asm-pred-lang-v6/framed?))
           asm-pred-lang-v5/spilled?]{
-Performs @a3-tech{graph-colouring register allocation}, compiling
+Performs graph-colouring register allocation, compiling
 @tech{Asm-pred-lang v6/framed} to @tech{Asm-pred-lang v6/spilled} by
-decorating programs with their @a3-tech{register assignments}.
+decorating programs with their register assignments.
 }
 ]
 
@@ -1334,16 +1295,20 @@ Compiles @tech{Asm-pred-lang-v6/spilled} to @tech{Asm-pred-lang-v6/assignments}
 by allocating all abstract locations in the locals set to free frame locations.
 }]
 
-Finally, we actually replace @a2-tech{abstract locations} with @a2-tech{physical
-locations}.
+Finally, we actually replace @ch2-tech{abstract locations} with
+@ch2-tech{physical locations}.
+Below we define @deftech{Nested-asm-lang-fvars v6}, typeset with differences compared
+to @ch5-tech{Nested-asm-lang v5}.
 
-@bettergrammar*-diff[asm-pred-lang-v6/assignments para-asm-lang-v6]
+@bettergrammar*-diff[nested-asm-lang-v5 nested-asm-lang-fvars-v6]
+
+We need to update the pass to handle @nested-asm-lang-fvars-v6[return-point]s.
 
 @nested[#:style 'inset
 @defproc[(replace-locations [p asm-pred-lang-v6/assignments?])
-         para-asm-lang-v6?]{
-Compiles @tech{Asm-pred-lang v6/assignments} to @tech{Asm-pred-lang v6} by
-replacing all @tech{abstract location} with @tech{physical locations} using the
+         nested-asm-lang-fvars-v6?]{
+Compiles @tech{Asm-pred-lang v6/assignments} to @tech{Nested-asm-lang-fvars v6} by
+replacing all @ch2-tech{abstract location} with @tech{physical locations} using the
 assignment described in the @asm-pred-lang-v6/assignments[assignment] info
 field.
 }
@@ -1354,27 +1319,114 @@ field.
   (pretty-display
    ((compose
      replace-locations
-     discard-call-live
      assign-frame-variables
      assign-registers
-     assign-frames
-     pre-assign-frame-variables
+     allocate-frames
+     assign-call-undead-variables
      conflict-analysis
      undead-analysis
      uncover-locals
-     select-instructions)
+     select-instructions
+     canonicalize-bind
+     impose-calling-conventions
+     sequentialize-let)
     '(module
        (define L.swap.1
          (lambda (x.1 y.2)
            (if (< y.2 x.1)
                x.1
-               (let ([z.3 (apply L.swap.1 y.2 x.1)])
+               (let ([z.3 (call L.swap.1 y.2 x.1)])
                  z.3))))
-       (apply L.swap.1 1 2)))))
+       (call L.swap.1 1 2)))))
 ]
 
+@section{Adjusting Frame Variables}
+We changed the invariants on @nested-asm-lang-v6[fbp], the
+@racket[current-frame-base-pointer-register], when added the @tech{stack of
+frames}.
+We now allow it to be incrememented and decrememented by an integer literal.
+This affects how we implement frame variables.
+
+Previously, the frame variables @nested-asm-lang-fvars-v6[fv1] represented the address
+@paren-x64-v6[(fbp - 8)] in all contexts.
+However, after now the compilation is non-trivial, as it must be aware of
+increments and decrements to the @nested-asm-lang-fvars-v6[fbp].
+
+Consider the example snippet
+@racketblock[
+`(begin
+   (set! rbp (+ rbp 8))
+   (return-point L.rp.8
+     (begin
+       (set! rdi fv3)
+       (jump L.f.1)))
+   (set! rbp (- rbp 8)))
+]
+
+In this example, the frame variable @nested-asm-lang-v6[fv3] is being passed to
+the procedure @nested-asm-lang-v6[L.f.1] in a non-tail call.
+@nested-asm-lang-v6[fv3] does not refer to 3rd frame variable on caller's, but
+the 3rd frame variable on the callee's frame.
+Since the frame is allocated prior to the return point, we need to fix-up this
+index by translating frame variables relative to frame allocations introduced
+around return points.
+
+To do this, we change @racket[implement-fvars] to be aware of the current
+@nested-asm-lang-v6[fbp] offset.
+The simplest way to do this is to relocate @racket[implement-fvars] in the
+compiler pipeline, to before @racket[expose-basic-blocks].
+This allows the compiler to make use of the nesting structure of the program
+while tracking changes to @nested-asm-lang-v6[fbp].
+
+To update @racket[implement-fvars], we need to keep an accumulator of the
+current offset from the base of the frame.
+On entry to a block, frame variables start indexing from the base of the frame,
+so the offset is 0.
+So, @nested-asm-lang-v6[fv3] corresponds to @paren-x64-v6[(fbp - 24)]
+(@racket[(- (* 3 (current-word-size-bytes)) 0)]).
+After an increment operation, such as @nested-asm-lang-v6[(set! fbp (- fbp
+24))], @nested-asm-lang-v6[fv3] corresponds to @paren-x64-v6[(fbp - 0)]
+(@racket[(- (* 3 (current-word-size-bytes)) 24)]).
+After a decrement, such as @paren-x64-v6[(set! fbp (- fbp 24))]
+@nested-asm-lang-v6[fv3] corresponds to @paren-x64-v6[(fbp - 24)] again.
+
+@todo{Should create an example to use here and in allocate-frames.}
+
+Recall that @nested-asm-lang-v6[fbp] is only incremented or decremented by
+integer literal values, like those generated by @racket[allocate-frames].
+Other assignments to @nested-asm-lang-v6[fbp] are invalid invalid programs.
+This means we don't have to consider complicated data flows into
+@nested-asm-lang-v6[fbp].
+
+The source language for @racket[implement-fvars], @deftech{Nested-asm-lang-fvars v6},
+is defined below typeset with respect to @deftech{Nested-asm-lang v5}.
+
+@bettergrammar*-diff[nested-asm-lang-v5 nested-asm-lang-fvars-v6]
+
+The language does not change much, only adding a new @nested-asm-lang-v6[binop].
+
+The target language simply changes @nested-asm-lang-fvars-v6[fvar]s to
+@nested-asm-lang-v6[addr]s.
+We define @deftech{Nested-asm-lang-v6} below.
+
+@bettergrammar*-diff[nested-asm-lang-fvars-v6 nested-asm-lang-v6]
+
+All languages following this pass need to be updated to use
+@nested-asm-lang-v6[addr]s instead of @nested-asm-lang-fvars-v6[fvars].
+This should not affect most passes.
+
+@nested[#:style 'inset
+@defproc[(implement-fvars (p paren-x64-fvars-v6?))
+          paren-x64-v6?]{
+Compile the @tech{Paren-x64-fvars v6} to @tech{Paren-x64 v6} by reifying
+@paren-x64-fvars-v4[fvar]s into displacement mode operands.
+}
+]
+
+@todo{Add a good example}
+
 @section{Implementing Return Points}
-To accommodate non-tail calls, we introduced a new abstractions: return
+Finally, to accommodate non-tail calls, we introduced a new abstractions: return
 points.
 We must now implement this abstraction.
 
@@ -1382,7 +1434,7 @@ To implement return points, we need to compile all the instructions following
 the return points into labeled blocks, since that is our low-level
 implementation of labels.
 We lift all the instructions following the return point in to a new block, and
-merge the tail implementing the call into the @object-code{begin} of the caller.
+merge the tail implementing the call into the @block-asm-lang-v6[begin] of the caller.
 Essentially, we transform:
 @racketblock[
 `(begin
@@ -1403,7 +1455,7 @@ lifts many inline blocks into top-level explicitly labeled blocks, and should
 now do the same for return points.
 
 The target language of the transformation is @deftech{Block-pred-lang v6},
-defined below as a change over @tech{Block-pred-lang v5}.
+defined below as a change over @ch5-tech{Block-pred-lang v5}.
 
 @bettergrammar*-diff[block-pred-lang-v5 block-pred-lang-v6]
 
@@ -1413,9 +1465,9 @@ Note that only @block-pred-lang-v6[-] has been added to the
 @block-pred-lang-v6[binop]s.
 
 @nested[#:style 'inset
-@defproc[(expose-basic-blocks (p para-asm-lang-v6?))
+@defproc[(expose-basic-blocks (p nested-asm-lang-v6?))
          block-pred-lang-v6?]{
-Compile the @tech{Para-asm-lang v6} to @tech{Block-pred-lang v6}, eliminating
+Compile the @tech{Nested-asm-lang v6} to @tech{Block-pred-lang v6}, eliminating
 all nested expressions by generate fresh basic blocks and jumps.
 }
 ]
@@ -1427,107 +1479,61 @@ all nested expressions by generate fresh basic blocks and jumps.
      expose-basic-blocks
      implement-fvars
      replace-locations
-     discard-call-live
      assign-frame-variables
      assign-registers
-     assign-frames
-     pre-assign-frame-variables
+     allocate-frames
+     assign-call-undead-variables
      conflict-analysis
      undead-analysis
      uncover-locals
-     select-instructions)
+     select-instructions
+     canonicalize-bind
+     impose-calling-conventions
+     sequentialize-let)
     '(module
        (define L.swap.1
          (lambda (x.1 y.2)
            (if (< y.2 x.1)
                x.1
-               (let ([z.3 (apply L.swap.1 y.2 x.1)])
+               (let ([z.3 (call L.swap.1 y.2 x.1)])
                  z.3))))
-       (apply L.swap.1 1 2)))))
+       (call L.swap.1 1 2)))))
 ]
 
-@section{Adjusting Frame Variables}
-Finally, we changed the invariants on @paren-x64-fvars-v6[fbp], the
-@racket[current-frame-base-pointer-register], when added the @tech{stack of
-frames}.
-We now allow it to be incrememented and decrememented by an integer literal.
-This affects how we implement frame variables.
+@section{Final Passes}
 
-Previously, the frame variables @paren-x64-fvars-v6[fv1] represented the address
-@paren-x64-v6[(fbp + 8)] in all contexts.
-However, after now the compilation is non-trivial, as it must be aware of
-increments and decrements to the @paren-x64-fvars-v6[fbp].
+The only two passes that should require changes are @racket[patch-instructions]
+and @racket[generate-x64].
 
-Consider the example snippet
-@racketblock[
-`(begin
-   (set! rbp (+ rbp 8))
-   (return-point L.rp.8
-     (begin
-       (set! rdi fv3)
-       (jump L.f.1)))
-   (set! rbp (- rbp 8)))
-]
+@racket[patch-instructions] should be updated to work over
+@para-asm-lang-v6[addr]s instead of @nested-asm-lang-fvars-v6[fvars]s.
+This can be done by changing a few predicates.
 
-In this example, the frame variable @paren-x64-fvars-v6[fv3] is being passed to
-the procedure @paren-x64-fvars-v6[L.f.1] in a non-tail call.
-@paren-x64-fvars-v6[fv3] does not refer to 3rd frame variable on caller's, but
-the 3rd frame variable on the callee's frame.
-Since the frame is allocated prior to the return point, we need to fix-up this
-index by translating frame variables relative to frame allocations introduced
-around return points.
-
-To do this, we change @racket[implement-fvars] to be aware of the current
-@paren-x64-fvars-v6[fbp] offset.
-On entry to a block, frame variables start indexing from the base of the frame,
-so the offset is 0.
-So, @paren-x64-fvars-v6[fv3] corresponds to @paren-x64-v6[(fbp + 24)]
-(@racket[(- (* 3 word-size-bytes) 0)]).
-After an increment operation, such as @paren-x64-fvars-v6[(set! fbp (+ fbp
-24))], @paren-x64-fvars-v6[fv3] corresponds to @paren-x64-v6[(fbp + 0)]
-(@racket[(- (* 3 word-size-bytes) 24)]).
-After a decrement, such as @paren-x64-v6[(set! fbp (- fbp 24))]
-@paren-x64-fvars-v6[fv3] corresponds to @paren-x64-v6[(fbp + 24)] again.
-
-@todo{Should create an example to use here and in assign-frames.}
-
-Recall that @paren-x64-fvars-v6[fbp] is only incremented or decremented by
-integer literal values, like those generated by @racket[assign-frames].
-Other assignments to @paren-x64-fvars-v6[fbp] are invalid invalid programs.
-This means we don't have to consider complicated data flows into
-@paren-x64-fvars-v6[fbp].
-
-Between @racket[expose-basic-blocks] and @racket[implement-fvars],
-the two passes @racket[resolve-predicates] and @racket[patch-instructions]
-require no changes except to recognize the additional @paren-x64-v6[binop]
-@paren-x64-v6[-].
-
-The source language for @racket[implement-fvars], @deftech{Paren-x64-fvars v6},
-is defined below typeset with respect to @deftech{Parenx-64-fvars v4}.
-
-@bettergrammar*-diff[paren-x64-fvars-v4 paren-x64-fvars-v6]
-
-The language does not change much, only adding a new @paren-x64-fvars-v6[binop.]
-However, the structure of the pass does change significantly since the key
-invariant on @paren-x64-fvars-v6[fbp] has changed.
-This invariant isn't explicit in the syntax, so this change in the specification
-is difficult to specify formally.
-
-@nested[#:style 'inset
-@defproc[(implement-fvars (p paren-x64-fvars-v6?))
-          paren-x64-v6?]{
-Compile the @tech{Paren-x64-fvars v6} to @tech{Paren-x64 v6} by reifying
-@paren-x64-fvars-v4[fvar]s into displacement mode operands.
+@defproc[(patch-instructions [p para-asm-lang-v6?]) paren-x64-v6?]{
+Compile the @tech{Para-asm-lang v6} to @tech{Paren-x64 v6} by patching
+instructions that have no @ch1-tech{x64} analogue into to a sequence of
+instructions and an auxiliary register from
+@racket[current-patch-instructions-registers].
 }
-]
 
-@todo{Add a good example}
+@racket[generate-x64] needs to be updated to generate the new
+@paren-x64-v6[binop].
+Ideally, there is a separate helper for generating @paren-x64-v6[binop]s, so
+this is only a minimal change.
+
+@defproc[(generate-x64 [p paren-x64-v6?])
+         (and/c string? x64-instructions?)]{
+Compile the @tech{Paren-x64 v6} program into a valid sequence of @ch1-tech{x64}
+instructions, represented as a string.
+}
 
 @section[#:tag "sec:overview"]{Appendix: Overview}
 
 @figure["fig:v6-graph" "Overview of Compiler Version 6" v6-graph]
 
 @section{Appendix: Languages}
+
+@declare-exporting[cpsc411/langs/v6]
 
 @deflangs[
 values-lang-v6
@@ -1543,9 +1549,11 @@ asm-pred-lang-v6/pre-framed
 asm-pred-lang-v6/framed
 asm-pred-lang-v6/spilled
 asm-pred-lang-v6/assignments
-para-asm-lang-v6
+nested-asm-lang-fvars-v6
+nested-asm-lang-v6
 block-pred-lang-v6
-paren-x64-fvars-v6
+block-asm-lang-v6
+para-asm-lang-v6
 paren-x64-v6
 paren-x64-rt-v6
 ]

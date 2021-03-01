@@ -39,10 +39,11 @@ L2 [label="Proc-imp-mf-lang v5"];
 L3 [label="Imp-mf-lang v5"];
 L4 [label="Imp-cmf-lang v5"];
 L5 [label="Asm-pred-lang v5"];
-L10 [label="Para-asm-lang v5"];
+L10 [label="Nested-asm-lang v5"];
 L11 [label="Block-pred-lang v5"];
-L12 [label="Block-asm-lang v5"];
-L13 [label="Paren-x64-fvars v5"];
+L12 [label="Block-asm-lang v4"];
+L12a [label="Para-asm-lang v4"];
+L13 [label="Paren-x64-fvars v4"];
 L14 [label="x64"];
 L15 [label="integer"]
 
@@ -84,7 +85,8 @@ L4 -> L5 [label=" select-instructions"];
 
 L10 -> L11 [label=" expose-basic-blocks"];
 L11 -> L12 [label=" resolve-predicates"]
-L12 -> L13 [label=" patch-instructions"];
+L12 -> L12a [label=" flatten-program"]
+L12a -> L13 [label=" patch-instructions"];
 L13 -> L16 [label=" implement-fvars"];
 L16 -> L14 [label=" generate-x64"];
 L14 -> L15 [label=" execute"];
@@ -486,14 +488,14 @@ For example, the following is a valid @tech{Values-lang v5} program:
       (if (= x 0)
           0
           (let ([y (- x 1)])
-            (even? y)))))
+            (call even? y)))))
   (define even?
     (lambda (x)
       (if (= x 0)
           1
           (let ([y (- x 1)])
-            (odd? y)))))
-  (even? 5))
+            (call odd? y)))))
+  (call even? 5))
 }
 
 We continue to require that the source program is well bound: all @tech{lexical
@@ -550,9 +552,12 @@ We use the following heuristics to implement @racket[check-values-lang]:
 @nested[#:style 'inset
 @defproc[(check-values-lang (p Values-lang-v5?))
           Values-lang-v5?]{
-Validates that the @tech{Values-lang v5} is well bound and well typed: all
-procedure calls pass the correct number of arguments, and all
-@values-lang-v5[binop] and @values-lang-v5[relop] are never used with labels.
+Validates that the @tech{Values-lang v5} is syntactically well-formed, well
+bound and well typed: all procedure calls pass the correct number of arguments,
+and all @values-lang-v5[binop] and @values-lang-v5[relop] are never used with
+labels.
+You may want to separet this into two problems: first checking syntax, then type
+checking.
 }
 ]
 
@@ -675,22 +680,14 @@ done the design work to simplify that.
 
 First, we design @deftech{Asm-pred-lang v5}, the target of our
 @racket[select-instructions] pass.
-We typeset the differences compared to @ch4-tech{Asm-pred-lang v4}.
+To see how to extend @racket[select-instructions], we should view the
+difference, we typeset the differences compared to @ch4-tech{Asm-pred-lang v4}.
 
 @bettergrammar*-diff[asm-pred-lang-v4 asm-pred-lang-v5]
 
-The only change in the language is the addition of jumps.
+The main difference is in the addition of the @racket[jump] instruction.
 Note that the "arguments" to the jump are not part of meaning of the
 instruction; they are just metadata used later by the compiler.
-
-To see how to extend @racket[select-instructions], we should view the difference
-compared to @tech{Imp-cmf-lang v5}.
-
-@bettergrammar*-diff[imp-cmf-lang-v5 asm-pred-lang-v5]
-
-The main difference is in the @racket[jump] instruction.
-Remember also that we assume the program is free from undefined behaviour, which
-we enforced in @racket[check-values-lang].
 
 @nested[#:style 'inset
 @defproc[(select-instructions (p imp-cmf-lang-v5.p))
@@ -809,7 +806,7 @@ decorating programs with their @a3-tech{register assignments}.
 Finally, we actually replace @a2-tech{abstract locations} with @a2-tech{physical
 locations}.
 
-@bettergrammar*-diff[asm-pred-lang-v5/assignments para-asm-lang-v5]
+@bettergrammar*-diff[asm-pred-lang-v5/assignments nested-asm-lang-v5]
 
 We need to extend the implementation to traverse each block, and support jump
 statements.
@@ -825,29 +822,29 @@ described in the @object-code{assignment} info field.
 
 @subsection{Exposing Basic Blocks}
 The last update need to make is to @racket[expose-basic-blocks].
-We design the source, @deftech{Para-asm-lang v5} below, typeset compared to
+We design the source, @deftech{Nested-asm-lang v5} below, typeset compared to
 @ch4-tech{Nested-asm-lang v4}
 
-@bettergrammar*-diff[para-asm-lang-v4 para-asm-lang-v5]
+@bettergrammar*-diff[nested-asm-lang-v4 nested-asm-lang-v5]
 
-The main difference is the inclusion of @para-asm-lang-v5[jump] expressions and
+The main difference is the inclusion of @nested-asm-lang-v5[jump] expressions and
 block definitions.
 These do not complicate the process of exposing basic blocks much.
 We simply need to traverse each block, exposing new blocks in the process.
 
 Note that we again need to impose the convention that execution begins with the
-first basic block, and move the initial @para-asm-lang-v5[tail] into an explicit
+first basic block, and move the initial @nested-asm-lang-v5[tail] into an explicit
 block.
 
 The target language is @deftech{Block-pred-lang v5}, typeset compared to
-@tech{Block-pred-lang v4} below.
+@ch4-tech{Block-pred-lang v4} below.
 
 @bettergrammar*-diff[block-pred-lang-v4 block-pred-lang-v5]
 
 @nested[#:style 'inset
-@defproc[(expose-basic-blocks (p para-asm-lang-v5?))
+@defproc[(expose-basic-blocks (p nested-asm-lang-v5?))
           block-pred-lang-v5]{
-Compile the @tech{Para-asm-lang v5} to @tech{Block-pred-lang v5}, eliminating
+Compile the @tech{Nested-asm-lang v5} to @tech{Block-pred-lang v5}, eliminating
 all nested expressions by generate fresh basic blocks and jumps.
 }
 ]
@@ -860,6 +857,8 @@ Nothing else in the compiler needs to change.
 
 @section{Appendix: Languages}
 
+@declare-exporting[cpsc411/langs/v5]
+
 @deflangs[
 values-lang-v5
 values-unique-lang-v5
@@ -871,6 +870,6 @@ asm-pred-lang-v5/locals
 asm-pred-lang-v5/undead
 asm-pred-lang-v5/conflicts
 asm-pred-lang-v5/assignments
-para-asm-lang-v5
+nested-asm-lang-v5
 block-pred-lang-v5
 ]

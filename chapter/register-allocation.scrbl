@@ -3,7 +3,10 @@
 @(require
   "../assignment/assignment-mlang.rkt"
   scriblib/figure
-  (for-label cpsc411/reference/a3-solution)
+  (for-label
+    (except-in cpsc411/reference/a3-solution uncover-locals replace-locations assign-homes))
+  (for-label
+    (only-in cpsc411/reference/a2-solution uncover-locals replace-locations assign-homes))
   (for-label (except-in cpsc411/compiler-lib compile))
   cpsc411/langs/v2
   (for-label cpsc411/langs/v2)
@@ -32,7 +35,7 @@ node [ fontname="Courier", shape="box", fontsize=12 ]
 
 L4 [label="Asm-lang-v2"];
 
-L62 [label="Nested-asm v2"];
+L62 [label="Nested-asm-lang v2"];
 
 /* Register allocator */
 
@@ -42,7 +45,7 @@ subgraph DoNotcluster0 {
     color=lightgrey,
     fontname="Courier",
     fontsize=12,
-    label = "assign-homes";
+    label = "assign-homes-opt";
   ];
   edge [fontname="Courier", fontsize=10, labeljust=right]
 
@@ -60,7 +63,7 @@ L51 -> L52 [label=" conflict-analysis"];
 L52 -> L6 [label=" assign-registers"];
 L6 -> L62 [label=" replace-locations"];
 
-L4 -> L62 [label=" assign-homes"];
+L4 -> L62 [label=" assign-homes-opt"];
 }
 }
 ]
@@ -161,10 +164,10 @@ functionality, but one that performs "better" (for some definition of "better").
 We will replace @racket[assign-homes] with @racket[assign-homes-opt].
 
 @nested[#:style 'inset]{
-@defproc[(assign-homes-opt [p asm-lang-v2?]) paren-asm-v2?]{
-Compiles @tech{Asm-lang v2} to @tech{Paren-asm v2}, replacing each
-@tech{abstract location} with a @tech{physical location}.
-This version perform @tech{graph-colouring register allocation}.
+@defproc[(assign-homes-opt [p asm-lang-v2?]) nested-asm-lang-v2?]{
+Compiles @ch2-tech{Asm-lang v2} to @ch2-tech{Nested-asm-lang v2}, replacing each
+@ch2-tech{abstract location} with a @ch2-tech{physical location}.
+This version perform graph-colouring register allocation.
 }
 }
 
@@ -186,7 +189,7 @@ The result is that we ignore @tech{live}ness entirely.
 we're analyzing, not merely variable.
 This is why SSA is valuable; makes variables = variables-at-point-in-time.}
 @margin-note{
-@tech{asm-lang-v2/locals} is a simple enough language that we can tell whether a
+@ch2-tech{Asm-lang v2/locals} is a simple enough language that we can tell whether a
 variable is @tech{dead} or @tech[#:key "live"]{alive}.
 Later, when we add new instructions, we will modify the @tech{undead} analysis
 and find variables that aren't necessarily @tech{live} or @tech{dead}, and must
@@ -243,7 +246,7 @@ from the @tech{undead-in set}.
 
 To start the loop, this algorithm requires a default @tech{undead-out set} for
 the last instruction; the default @tech{undead-out set} for
-@tech{Asm-lang v2/locals} is empty.
+@ch2-tech{Asm-lang v2/locals} is empty.
 In general, the default set may not be empty, because we may assume that some
 values are live after the program.
 For example, in @tech[#:tag-prefixes '("book:" "chp-boilerplate:")]{Paren-x64
@@ -254,19 +257,29 @@ later passes can associate each instruction with its @tech{undead-out set}.
 There are many ways to associate the @tech{undead-out sets} with instructions.
 A simple way is to create a data structure that maps each set to an instruction.
 
-Since our programs are simple lists of instructions, a list of sets is a good
-representation of the @tech{undead-out sets}.
-We define the data @deftech{undead-set list} as a list of @tech{undead-out
-sets}, where the position in the list maps the @tech{undead-out set} to an
-instruction in a corresponding @tech{instruction sequence}.
-The first element of the list represents @tech{undead-out set} for the first
-instruction, the second element represents the @tech{undead-out set} for the
-second instruction, and so on.
-An @tech{undead-set list} @object-code{(undead-out-set? ...)} together with a
-list of instructions @object-code{(s ...)} can be traversed together using the
-template for for two lists simultaneously:
+Since our programs are trees of instructions, we represent the @tech{undead-out
+sets} for each instruction as a tree of @tech{undead-out sets}.
+We define the data @tech{undead-set tree} to mirror structure of
+@ch2-tech{Asm-lang v2} programs.
+An @deftech{undead-set tree} is either:
+@itemlist[
+@item{an @tech{undead-out set} @asm-lang-v2[(aloc ...)], corresponding to a
+single instruction such as @asm-lang-v2[(halt triv)]}
+@item{or a list of @tech{undead-set tree}s, corresponding to the
+@tech{undead-set tree}s @asm-lang-v2[(undead-set-tree?_1 ... undead-set-tree?_2)]
+corresponding to a @asm-lang-v2[begin] statement
+@asm-lang-v2[(begin effect_1 ... effect_2)]
+The first element of the list represents @tech{undead-set tree} for the first
+@asm-lang-v2[effect], the second element represents the @tech{undead-set tree}
+for the second @asm-lang-v2[effect], and so on.
+}
+]
+An @tech{undead-set tree} @asm-lang-v2[(undead-set-tree? ...)] together with a
+list of instructions @asm-lang-v2[(effect ...)] can be traversed together using
+the template for for two trees simultaneously.
+This is similar to traversing two lists simultaneously:
 @racketblock[
-(define (fn-for-ss-and-undead-outs ss undead-outs)
+(define (fn-for-s-and-undead-outs ss undead-outs)
   (match (cons ss undead-outs)
     [(cons '() '())
      (... case-for-empty ...)]
@@ -275,21 +288,24 @@ template for for two lists simultaneously:
           (fn-for-ss-and-undead-outs rest-ss rest-undead-outs))]))
 ]
 
+You'll need to design the template for traversing @asm-lang-v2[tail] and
+@asm-lang-v2[effect] trees simultaneously with an @tech{undead-set tree}
+yourself.
 
 To describe the output of the analysis, we define a new @tech{administrative
 language}.
-We collect the @tech{undead-set list} a new @asm-lang-v2/undead{info} field.
+We collect the @tech{undead-set tree} a new @asm-lang-v2/undead[info] field.
 Below, we define @deftech{Asm-lang v2/undead}.
-The only change compared to @tech{Asm-lang v2/locals} is in the
-@asm-lang-v2/undead{info} field, so we typeset the difference in the
-@asm-lang-v2/undead{info} field.
+The only change compared to @ch2-tech{Asm-lang v2/locals} is in the
+@asm-lang-v2/undead[info] field, so we typeset the difference in the
+@asm-lang-v2/undead[info] field.
 
 @bettergrammar*-diff[asm-lang-v2/locals asm-lang-v2/undead]
 
 @nested[#:style 'inset]{
 @defproc[(undead-analysis [p asm-lang-v2/locals?]) asm-lang-v2/undead?]{
 Performs undeadness analysis, decorating the program with @tech{undead-set
-lists}.
+tree}.
 Only the info field of the program is modified.
 
 @examples[#:eval sb
@@ -443,9 +459,9 @@ As in @tech{Asm-lang v2/undead}, the @asm-lang-v2/conflicts[info] field also
 contains a declaration of the @ch2-tech{abstract locations} that may be used in the
 program, and (as usual) possibly other non-required but useful information.
 
-To implement conflict analysis, we simultaneously traverse an @tech{instruction
-sequence} with its @tech{undead-out set}, and analysis each instruction
-according to the approxiate conflict definition above.
+To implement conflict analysis, we simultaneously traverse an program with its
+@tech{undead-set tree}, and analysis each instruction according to the
+approxiate conflict definition above.
 We start with an graph that initially contains a node for every
 @ch2-tech{abstract location} in the @asm-lang-v2/conflicts[locals] set, and
 extend the graph with conflicts as we discover them.
@@ -542,7 +558,7 @@ We recur over the set of @asm-lang-v2/conflicts[locals] and producing an
 assignment.}
 @item{Otherwise, choose a @tech{low-degree} @variable from the input set of
 @|variables|, if one exists.
-Otherwise, pick an arbtrary @ch2-tech{abstract locations} from the set.
+Otherwise, pick an arbitrary @ch2-tech{abstract locations} from the set.
 
 A @deftech{low-degree} @ch2-tech{abstract locations} is one with fewer than
 @tt{k} conflicts, some for pre-defined @tt{k}.
@@ -577,13 +593,13 @@ sorted order.
 To describe the output of the regsiter allocator, we reuse @ch2-tech{Asm-lang
 v2/assignments}.
 Below, we typeset the changes compared to @tech{Asm-lang v2/conflicts}.
-Note only the @asm-lang-v2/assignments{info} field changes.
+Note only the @asm-lang-v2/assignments[info] field changes.
 
 @bettergrammar*-diff[#:include (info) asm-lang-v2/conflicts asm-lang-v2/assignments]
 
 @nested[#:style 'inset]{
 @defproc[(assign-registers [p asm-lang-v2/conflicts]) asm-lang-v2/assignments?]{
-Performs @tech{graph-colouring register allocation}.
+Performs graph-colouring register allocation.
 The pass attempts to fit each of the @ch2-tech{abstract location} declared in
 the locals set into a register, and if one cannot be found, assigns it a
 @ch2-tech{frame variable} instead.

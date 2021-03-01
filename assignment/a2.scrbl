@@ -47,9 +47,11 @@ You can use the interrogator to get limited access to the reference solution:
 @typeset-passlist[
 implement-fvars
 patch-instructions
+flatten-begins
 replace-locations
-assign-homes
+assign-fvars
 uncover-locals
+assign-homes
 select-instructions
 canonicalize-bind
 sequentialize-let
@@ -132,11 +134,11 @@ reading the entire chapter.
 
 @exercise{Remove your definitions of @racket[wrap-x64-boilerplate] and
 @racket[wrap-x64-run-time].
-These are now provided by @racketmodname[cpsc411/compiler-lib], since your
+These are now provided by @racketmodname[cpsc411/2c-run-time], since your
 run-time system is getting more complicated.
 }
 
-@exercise{Extend @racket[generate-x64] to emit @tech{displacement-mode operands}.
+@exercise{Extend @racket[generate-x64] to emit @ch2-tech{displacement mode operands}.
 @todo{Add hint for nasm syntax?}
 }
 
@@ -148,12 +150,20 @@ You may find the function @racket[fvar->index] helpful.
 
 @exercise{Design and implement @racket[patch-instructions] to abstract away from
 @ch1-tech{x64} restrictions.
+}
+
+@exercise{Design and implement @racket[flatten-begins] to flatten nested
+instructions.
 
 You may find the function @racket[make-begin] helpful.
 }
 
 @exercise{Design and implement @racket[replace-locations] to replace
 @ch2-tech{abstract locations} with their assigned @tech{physical location}.
+}
+
+@exercise{Design and implement @racket[assign-fvars] assign @ch2-tech{abstract
+locations} to @tech{physical location}.
 }
 
 @exercise{Design and implement @racket[uncover-locals] to analyze which
@@ -164,7 +174,9 @@ For working with sets, you may want to use @secref["sets" #:doc '(lib
 "scribblings/reference/reference.scrbl")].
 }
 
-@exercise{Design and implement @racket[selection-instructions] to compile
+@exercise{Implement @racket[assign-homes].}
+
+@exercise{Design and implement @racket[select-instructions] to compile
 imperative operations to abstract assembly instructions.
 
 You may find the functions @racket[aloc?] helpful and @racket[fresh] helpful.

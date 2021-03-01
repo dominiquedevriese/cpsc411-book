@@ -151,8 +151,18 @@ It is written as @tt{QWORD [reg - int32]} or
 @tt{QWORD [reg + int32]} in @ch1-tech{x64}, where @tt{reg} is a register
 holding some memory address and the @tt{int32} is an offset number of bytes
 from that address to access, as a 32-bit integer.
-The keyword @tt{QWORD}, which is an unintuitive spelling of "four bytes",
+The keyword @tt{QWORD}, which is an unintuitive spelling of "8 bytes",
 indicates that this operand is accessing 64 bits at a time.
+
+@margin-note{
+"Word" normally means the unit of addressing memory---64bits in our case.
+Unfortunately, in the past, the word size was different.
+In order to avoid backwards incompatibilty changes, tools that use @tt{WORD} as
+a keyword, like @tt{nasm}, didn't want to change it's meaning.
+Instead, the keyword @tt{WORD} means 16-bits, not the word size, and prefixes
+give us multiple of that notion of @tt{WORD}.
+So @tt{QWORD} is 4 @tt{WORD}s, or 64 bits, which is the word size on x64.
+}
 
 For example, if @tt{rbp} holds a memory address, we can move the value
 @tt{42} to that memory address using the instruction
@@ -243,7 +253,7 @@ If you're interested in how this is done, you can read the definition of
 @racket[x86-64-runtime].
 
 @nested[#:style 'inset
-@defproc[(generate-x64 (p Paren-x64-v4.p))
+@defproc[(generate-x64 (p paren-x64-v2?))
          (and/c string? x64-instructions?)]{
 Compile the @tech{Paren-x64 v2} program into a valid sequence of @ch1-tech{x64}
 instructions, represented as a string.
@@ -407,7 +417,7 @@ the @tech{stack discipline} invariant for the
 @nested[#:style 'inset
 @defproc[(patch-instructions (p para-asm-lang-v2?))
           paren-x64-fvars-v2?]{
-Compile the @tech{Para-asm v2} to @tech{Paren-fvars-x64 v2} by patching
+Compiles the @tech{Para-asm v2} to @tech{Paren-x64-fvars v2} by patching
 instructions that have no @ch1-tech{x64} analogue into a sequence of
 instructions.
 The implementation should use auxiliary registers from
@@ -470,7 +480,7 @@ We also enable nesting in effect position.
 This essentially allows to copy and paste some @tech{instruction sequence} into
 the middle of a program.
 
-@nested[#:style 'inset][
+@nested[#:style 'inset
 @defproc[(flatten-begins [p nested-asm-lang-v2]) para-asm-lang-v2]{
 Flatten all nested @nested-asm-lang-v2[begin] expressions.
 }
@@ -615,8 +625,8 @@ The language is more general than our implementation strategy; we allow an
 including registers, to permit future optimizations or hand-written code.
 
 @nested[#:style 'inset
-@defproc[(assign-fvars (p Asm-lang-v2/locals.p))
-          Asm-lang-v2/assignments.p]{
+@defproc[(assign-fvars (p asm-lang-v2/locals?))
+          asm-lang-v2/assignments?]{
 Compiles @tech{Asm-lang v2/locals} to @tech{Asm-lang v2/assignments},
 by assigning each @tech{abstract location} from the @asm-lang-v2/locals[locals]
 @tech{info field} to a fresh @tech{frame variable}.
@@ -644,21 +654,21 @@ the @tech{physical location} assigned by @racket[assign-fvars].
 @nested[#:style 'inset
 @defproc[(replace-locations (p asm-lang-v2/assignments?))
           nested-asm-lang-v2?]{
-Compiles @tech{Asm-lang v2/assignments} to @tech{Nested-asm v2},
+Compiles @tech{Asm-lang v2/assignments} to @tech{Nested-asm-lang v2},
 replaced each @tech{abstract location} with its assigned @tech{physical
 location} from the @asm-lang-v2/assignments[assignment] @tech{info field}.
 }
 
 @examples[#:eval sb
 (replace-locations
-  '(module ((assignment ((x.1 rax))) (locals (x.1)))
+  '(module ((locals (x.1)) (assignment ((x.1 rax))))
     (begin
       (set! x.1 0)
       (halt x.1))))
 
 (replace-locations
-  '(module ((assignment ((x.1 rax) (y.1 rbx) (w.1 r9)))
-            (locals (x.1 y.1 w.1)))
+  '(module ((locals (x.1 y.1 w.1))
+            (assignment ((x.1 rax) (y.1 rbx) (w.1 r9))))
     (begin
       (set! x.1 0)
       (set! y.1 x.1)
@@ -673,12 +683,12 @@ single pass.
 @nested[#:style 'inset
 @defproc[(assign-homes (p asm-lang-v2?))
          nested-asm-lang-v2?]{
-Compiles @tech{Asm-lang v2} to @tech{Nested-asm v2}, replacing each
+Compiles @tech{Asm-lang v2} to @tech{Nested-asm-lang v2}, replacing each
 @tech{abstract location} with a @tech{physical location}.
 }
 ]
 
-@section{Source Language Polishing}
+@;section{Source Language Polishing}
 @todo{Add validator to remove undefined behaviour}
 
 @section{Appendix: Overview}

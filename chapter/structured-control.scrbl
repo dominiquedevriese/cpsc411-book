@@ -3,7 +3,8 @@
 @(require
   "../assignment/assignment-mlang.rkt"
   scriblib/figure
-  (for-label cpsc411/v1-reference/a4-franken-solution)
+  (for-label cpsc411/reference/a4-solution)
+  cpsc411/reference/a4-solution
   (for-label cpsc411/langs/v4)
   cpsc411/langs/v2
   cpsc411/langs/v3
@@ -13,12 +14,13 @@
 @(provide
   (except-out (all-defined-out) sb))
 
-@declare-exporting[cpsc411/v1-reference/a4-franken-solution]
+@declare-exporting[cpsc411/reference/a4-solution]
+@(define (ch-ra-tech . rest) (apply tech #:tag-prefixes '("book:" "chp-reg-allocl") rest))
 
 @(define sb
    (make-cached-eval
     "ch4-eval"
-    '(require cpsc411/v1-reference/a4-franken-solution cpsc411/compiler-lib)
+    '(require cpsc411/reference/a4-solution cpsc411/compiler-lib)
     '(current-stack-size 512)))
 
 @; ----- Language Defs ------
@@ -43,7 +45,7 @@ L9 [label="Block-asm-lang v4"];
 L17 [label="Paren-x64-fvars v4"];
 L10 [label="Para-asm-lang v4"];
 L13 [label="x64"];
-L14 [label="integer"]
+L14 [label="int64"]
 
 /* Register allocator */
 
@@ -79,6 +81,7 @@ L1 -> L15 [label=" sequentialize-let"];
 L15 -> L16 [label=" canonicalize-bind"];
 L16 -> L2 [label=" select-instructions"];
 
+L7 -> L7 [label=" optimize-predicates"];
 L7 -> L8 [label=" expose-basic-blocks"];
 L8 -> L9 [label=" resolve-predicates"]
 L9 -> L10 [label=" flatten-program"];
@@ -206,50 +209,61 @@ Labels are too complex to define by grammar; instead, they're defined by the
 @racket[label?] predicate in @racketmodname[cpsc411/compiler-lib].
 
 In @tech{Paren-x64 v4}, we model labels with the @object-code{(with-label label s)}
-instruction, which defines a label @object-code{label} at the instruction
-@object-code{s} in the instruction sequence.
-This corresponds to the @ch1-tech{x64} string @object-code{label:\n s}.
+instruction, which defines a label @paren-x64-v4[label] at the instruction
+@paren-x64-v4[s] in the instruction sequence.
+This corresponds to the @ch1-tech{x64} string @tt{label:\n s}.
 Note that they can be nested, allowing the same behavior as chaining labels in
 @ch1-tech{x64}.
 For convenience, we assume all labels are symbols of the form
-@object-code{L.<name>.<number>}, and are globally unique.
+@paren-x64-v4[L.<name>.<number>], and are globally unique.
 
-Note that @object-code{(with-label label s)} does @emph{not} behave like a
+Note that @paren-x64-v4[(with-label label s)] does @emph{not} behave like a
 @racket[define] in Racket or in @ch3-tech{Values-lang v3}.
-The instruction @object-code{s} gets executed after the previous instruction in
+The instruction @paren-x64-v4[s] gets executed after the previous instruction in
 the sequence, even if the previous instruction was not a jump.
-@object-code{with-label} additionally names the instruction so we can jump to it
+@paren-x64-v4[with-label] additionally names the instruction so we can jump to it
 later, the same as a label in @ch1-tech{x64}.
 
-The new comparison instruction @object-code{(compare reg opand)} corresponds to
-the @ch1-tech{x64} instruction @object-code{cmp reg, opand}.  This instruction
-compares @object-code{reg} to @object-code{opand} and sets some flags in the
-machine describing their relation, such as whether @object-code{reg} is less
-than @object-code{opand}, or whether they are equal.  The flags are used by the
+The new comparison instruction @paren-x64-v4[(compare reg opand)] corresponds to
+the @ch1-tech{x64} instruction @tt{cmp reg, opand}.  This instruction
+compares @paren-x64-v4[reg] to @paren-x64-v4[opand] and sets some flags in the
+machine describing their relation, such as whether @paren-x64-v4[reg] is less
+than @paren-x64-v4[opand], or whether they are equal.  The flags are used by the
 next condition jump instruction.
 
 The conditional jump instructions in @ch1-tech{x64}, in the same order as the
-definition of @object-code{relop}, are: @object-code{jl label},
-@object-code{jle label}, @object-code{je label},
-@object-code{jge label}, @object-code{jg label}, and @object-code{jne label}
+definition of @paren-x64-v4[relop], are: @tt{jl label},
+@tt{jle label}, @tt{je label},
+@tt{jge label}, @tt{jg label}, and @tt{jne label}
 and
-Each corresponds to "jump to @object-code{trg} if the comparison flag is set to
+Each corresponds to "jump to @paren-x64-v4[trg] if the comparison flag is set to
 ___".
-For example, the instruction @object-code{je label} jumps to @object-code{label}
+For example, the instruction @tt{je label} jumps to @paren-x64-v4[label]
 if the comparison flag "equal" is set.
 
 In @tech{Paren-x64 v4}, we abstract the various conditional jump instructions
 into a single instruction with multiple flags.
-The instruction @object-code{je l} corresponds to @object-code{(jump-if = l)}.
-@object-code{jl l} jumps to @object-code{l} if comparison flag "less than" is
-set, and corresponds to @object-code{(jump-if < l)}.
+The instruction @tt{je l} corresponds to @paren-x64-v4[(jump-if = l)].
+@tt{jl l} jumps to @paren-x64-v4[l] if comparison flag "less than" is
+set, and corresponds to @paren-x64-v4[(jump-if < l)].
 The rest of the instructions follow this pattern.
+
+We make an additional simplifying restriction in @tech{Paren-x64 v4} compared to
+@ch1-tech{x64}.
+We assume that a @paren-x64-v4[compare] instruction is always followed
+immediately by a @paren-x64-v4[jump-if], and similarly, that any
+@paren-x64-v4[jump-if] is immediately preceeded by a @paren-x64-v4[compare].
+This is necessay since other instructions in @ch1-tech{x64}, such as binary
+operations, can affect comparison flags.
+However, we do not want to try to reason about how the flags are affected by
+arbitrary comparison, and our compiler will always generate a
+compare-and-then-conditional-jump sequence of instructions.
 
 To implement @tech{Paren-x64 v4}, we define the procedure @racket[generate-x64],
 which simply converts each instruction to its @ch1-tech{x64} string form.
 
 @nested[#:style 'inset
-@defproc[(generate-x64 (p Paren-x64-v4.p))
+@defproc[(generate-x64 (p paren-x64-v4?))
          (and/c string? x64-instructions?)]{
 Compile the @tech{Paren-x64 v4} program into a valid sequence of @ch1-tech{x64}
 instructions, represented as a string.
@@ -300,8 +314,8 @@ To implement @tech{Paren-x64-rt v4} and thus perform linking, we define
 the procedure @racket[link-paren-x64].
 
 @nested[#:style 'inset
-@defproc[(link-paren-x64 (p Paren-x64-v4.p))
-         Paren-x64-rt-v4.p]{
+@defproc[(link-paren-x64 (p paren-x64-v4?))
+         paren-x64-rt-v4?]{
 Compiles @tech{Paren-x64 v4} to @tech{Paren-x64-rt v4} by resolving all labels
 to their position in the instruction sequence.
 }
@@ -318,16 +332,16 @@ To interpret a jump, we simply change the program counter to the number
 indicated in the jump.
 
 @nested[#:style 'inset
-@defproc[(interp-paren-x64 (p Paren-x64-v4.p))
-         (integer-in/c 0 255)]{
+@defproc[(interp-paren-x64 (p paren-x64-v4?))
+         int64?]{
 Interpret the @tech{Paren-x64 v4} program @racket[p] as a value, returning the
 exit code for @racket[p].
 }
 
-@defproc[(interp-loop (c (listof Paren-x64-rt-v4.s))
+@defproc[(interp-loop (c (listof paren-x64-rt-v4.s))
                       (m dict?)
                       (pc natural-number/c))
-         (integer-in/c 0 255)]{
+         int64?]{
 The main loop of the interpreter for @tech{Paren-x64-rt v4}.
 @racket[code] does not change.
 @racket[memory] is a @racket[dict?] mapping @tech{physical locations} (as
@@ -368,8 +382,8 @@ Nothing important changes in @tech{Paren-x64-fvars v4}.
 We simply add the new control-flow primitives.
 
 @nested[#:style 'inset
-@defproc[(implement-fvars (p Paren-x64-fvars-v4.p))
-         Paren-x64-v4.p]{
+@defproc[(implement-fvars (p paren-x64-fvars-v4?))
+         paren-x64-v4?]{
 Compile the @tech{Paren-x64-fvars v4} to @tech{Paren-x64 v4} by reifying
 @paren-x64-fvars-v4[fvar]s into displacement mode operands.
 The pass should use @racket[current-frame-base-pointer].
@@ -378,7 +392,7 @@ The pass should use @racket[current-frame-base-pointer].
 
 Next we typeset @deftech{Para-asm-lang v4} compared to @ch2-tech{Para-asm-lang v2}.
 
-@bettergrammar*[para-asm-lang-v4]
+@bettergrammar*-diff[para-asm-lang-v2 para-asm-lang-v4]
 
 While @para-asm-lang-v4[halt] is still an instruction, we assume that there is
 exactly one @emph{dynamic} halt and that it is the final instruction executed in
@@ -392,8 +406,15 @@ the program.
 It could also be that there are multiple @para-asm-lang-v4[halt] instructions
 syntactically, but only one will ever be executed due to conditional jumps.
 
-We continue to support nested @para-asm-lang-v4[tail]s for backwards compatibility,
-but it will turn out that we no longer generate these in @tech{Para-asm-lang v4}.
+This also means compiling @para-asm-lang-v4[halt] is slightly more complicated.
+We must ensure that @para-asm-lang-v4[halt] is the last instruction executed.
+The run-time system provides a special label, @racket['done], which is expected
+to be executed at the end of the program.
+Straightline code will fall through to this label, but it can be jumped to
+instead.
+
+@;We continue to support nested @para-asm-lang-v4[tail]s for backwards compatibility,
+@;but it will turn out that we no longer generate these in @tech{Para-asm-lang v4}.
 @todo{Is that true? Kent gets ride of this in expose-basic-blocks, but my ebb
 comes earlier in the pipeline.}
 
@@ -408,8 +429,8 @@ We can do this by generating a 2-instruction sequence and negating the
 where we have predicates.}
 
 @nested[#:style 'inset
-@defproc[(patch-instructions (p Para-asm-lang-v4.p))
-         Paren-x64-fvars-v4.p]{
+@defproc[(patch-instructions (p para-asm-lang-v4?))
+         paren-x64-fvars-v4?]{
 Compile the @tech{Para-asm-lang v4} to @tech{Paren-x64-fvars v4} by patching
 instructions that have no @ch1-tech{x64} analogue into to a sequence of
 instructions and an auxiliary register from
@@ -517,16 +538,13 @@ Instead, we require that @object-code{halt} appears at the end of a block, and
 assume only one @object-code{halt} instruction is ever executed during
 exectuion.
 
-Note that now there is an @object-code{info} field for each block.
-This gives us the flexibility to write analyses over each block separately.
-
 To implement @tech{Block-asm-lang v4}, we simply flatten blocks, moving the
 @object-code{label} from the @object-code{define} to the first instruction in
 the block using @object-code{with-label}.
 
 @nested[#:style 'inset
-@defproc[(flatten-program (p Block-asm-lang-v4.p))
-          Para-asm-lang-v4.p]{
+@defproc[(flatten-program (p block-asm-lang-v4?))
+          para-asm-lang-v4?]{
 Compile @tech{Block-asm-lang v4} to @tech{Para-asm-lang v4} by flattening basic
 blocks into labeled instructions.
 }
@@ -601,8 +619,8 @@ We implement @tech{Block-pred-lang v4} with a simple compiler,
 @racket[resolve-predicates].
 
 @nested[#:style 'inset
-@defproc[(resolve-predicates (p block-pred-lang-v4.p?))
-         block-asm-lang-v4]{
+@defproc[(resolve-predicates (p block-pred-lang-v4?))
+         block-asm-lang-v4?]{
 Compile the @tech{Block-pred-lang v4} to @tech{Block-asm-lang v4} by
 manipulating the branches of @object-code{if} statements to resolve branches.
 }
@@ -713,16 +731,15 @@ code, so for efficiency and simplicity, it is beneficial to maintain
 To implement @tech{Nested-asm-lang v4}, we define the procedure
 @racket[expose-basic-blocks].
 The strategy for writing this is slightly complex.
-Each helper for processing a nonterminal may need to introduce new basic blocks.
-In Racket, you can pass multiple return values using @racket[values], and bind them using
-@racket[let-values], @racket[let-values*], or @racket[define-values].
-You should use @racket[fresh-label] to generate new unique labels.
-@todo{elaborate}
+Each helper for processing a nonterminal may need to introduce new basic blocks,
+and transforming a nested @nested-asm-lang-v4[if] expressions requires knowning
+the target of each branch.
 
-The transformer for predicates should transform predicates and generate an
+The transformation for predicates should transform predicates and generate an
 @nested-asm-lang-v4[if] statement whose branches are jumps.
-The helper takes two additional inputs, a "true" and a "false" label, used to
-generate the output @nested-asm-lang-v4[if] instruction.
+When processing a @nested-asm-lang-v4[pred], we need takes two additional
+inputs, a "true" and a "false" label, used to generate the output
+@nested-asm-lang-v4[if] instruction.
 For a base predicate, such as @nested-asm-lang-v4[(true)] or
 @nested-asm-lang-v4[(relop aloc triv)], you can generate an @nested-asm-lang-v4[if]
 statement.
@@ -738,8 +755,8 @@ pass.
 for future optimization potential?}
 
 @nested[#:style 'inset
-@defproc[(expose-basic-blocks (p nested-asm-lang-v4.p?))
-          block-pred-lang-v4]{
+@defproc[(expose-basic-blocks (p nested-asm-lang-v4?))
+          block-pred-lang-v4?]{
 Compile the @tech{Nested-asm-lang v4} to @tech{Block-pred-lang v4}, eliminating
 all nested expressions by generating fresh basic blocks and jumps.
 }
@@ -753,30 +770,40 @@ For example, we can express the following rewrites:
 #:row-properties  '(bottom-border ())
 (list
  (list @bold{Source} "⇒" @bold{Target})
- (list @object-code{(> 1 0)} "⇒" @object-code{(true)})
- (list @object-code{(< 1 0)} "⇒" @object-code{(false)})
- (list @object-code{(< opand_1 (max-int 64))} "⇒" @object-code{(true)})
- (list @object-code{(= opand_1 opand_1)} "⇒" @object-code{(true)})
- (list @object-code{(= int64_1 int64_2)} "⇒" @object-code{(false)}))
+ (list @nested-asm-lang-v4[(begin (set! reg 1) (> reg 0))] "⇒" @nested-asm-lang-v4[(begin (set! reg 1) (true))])
+ (list @nested-asm-lang-v4[(begin (set! reg 1) (< reg 0))] "⇒" @nested-asm-lang-v4[(begin (set! reg 1) (false))])
+ (list @nested-asm-lang-v4[(begin (set! reg opand_1) (< (max-int 64)))] "⇒" @nested-asm-lang-v4[(begin (set! reg opand_1) (true))])
+ (list @nested-asm-lang-v4[(begin (set! reg opand_1) (= reg opand_1))] "⇒" @nested-asm-lang-v4[(begin (set! reg opand_1) (true))])
+ (list @nested-asm-lang-v4[(begin (set! reg int64_1) (= reg int64_2))] "⇒" @nested-asm-lang-v4[(false)]))
 ]
 
-More generally, we might define an @deftech{abstract interpreter} for
-predicates.
+The language doesn't allow us to express relational opreations directly on
+@object-code{opand}s, so we have to be a little more clever to record the
+possible values of @tech{abstract locations}, and detect @object-code{(> loc
+0)}, when @object-code{loc} is surely greater than 0.
+
+More generally, we might define an @deftech{abstract interpreter}.
 This interpreter would run during compile-time, and thus over possibly
 incomplete programs.
 This means it has to define some abstract notion of the value of a statement.
-In the worst case, such an abstract value will represent "any run-time value", meaning that we don't have enough static information to predict the result.
-However, we might be able to evaluate a predicate to @object-code{(true)}
-or @object-code{(false)} in the abstract interpreter, and if so, this justifies
-an optimization.
+In the worst case, such an abstract value will represent "any run-time value",
+meaning that we don't have enough static information to predict the result.
+However, we might be able to evaluate a predicate determine that in
+@nested-asm-lang-v4[(begin (set! fv0 5) (> fv0 5))], @nested-asm-lang-v4[fv0] is
+surely 5, and to @nested-asm-lang-v4[(not (true))] is surely
+@nested-asm-lang-v4[(false)] in the abstract interpreter, and if so, this
+justifies optimizations.
 
-@question{Can you think of any predicates that require using nested @object-code{if}
+Note that when rewriting predicates, we must be careful to preserve any effects,
+since we can't (locally) know whether they're necessary or not.
+
+@question{Can you think of any predicates that require using nested @nested-asm-lang-v4[if]
 statements?}
 @todo{Can i?}
 
 @nested[#:style 'inset
-@defproc[(optimize-predicates (p nested-asm-lang-v4.p?))
-         nested-asm-lang-v4.p?]{
+@defproc[(optimize-predicates (p nested-asm-lang-v4?))
+         nested-asm-lang-v4?]{
 Optimize @tech{Nested-asm-lang v4} programs by analyzing and simplifying
 predicates.
 }
@@ -784,13 +811,13 @@ predicates.
 
 @section{Register Allocation}
 Next, we design @deftech{Asm-pred-lang v4}, an imperative language that supports some nested structured control-flow.
-Like @tech{Loc-lang v2}, this language is a family of @ch2-tech{administrative
+Like @tech{Asm-lang v2}, this language is a family of @ch2-tech{administrative
 languages}, each differing only in its info fields.
 
 @bettergrammar*-diff[nested-asm-lang-v4 asm-pred-lang-v4]
 
 The big difference is that @tech{physical locations} have changed to
-@tech{abstract locations}.
+@ch2-tech{abstract locations}.
 Recall that this is the big abstraction register allocation buys us, so it ought
 to be the only big change.
 
@@ -798,10 +825,10 @@ As before, we treat the register allocator as single compiler from
 @tech{Asm-pred-lang v4} to @tech{Nested-asm-lang v4}.
 
 @nested[#:style 'inset
-@defproc[(assign-homes-opt [p asm-pred-lang-v4.p?])
-         nested-asm-lang-v4.p?]{
+@defproc[(assign-homes-opt [p asm-pred-lang-v4?])
+         nested-asm-lang-v4?]{
 Compiles @tech{Asm-pred-lang v4} to @tech{Nested-asm-lang v4} by replacing all
-@tech{abstract locations} with @tech{physical locations}.
+@ch2-tech{abstract locations} with @tech{physical locations}.
 }
 ]
 
@@ -823,10 +850,10 @@ module.
 @bettergrammar*-diff[#:include (info) asm-pred-lang-v4 asm-pred-lang-v4/locals]
 
 @nested[#:style 'inset
-@defproc[(uncover-locals (p asm-pred-lang-v4.p?))
-         asm-pred-lang-v4/locals.p?]{
+@defproc[(uncover-locals (p asm-pred-lang-v4?))
+         asm-pred-lang-v4/locals?]{
 Compiles @tech{Asm-pred-lang v4} to @tech{Asm-pred-lang v4/locals}, analysing which
-@tech{abstract locations} are used in the module and decorating the module with
+@ch2-tech{abstract locations} are used in the module and decorating the module with
 the set of variables in an @racket[info?] field.
 }
 ]
@@ -842,12 +869,9 @@ statements.
 
 The key to describing the analysis is designing a representation of @tech{undead
 sets} that can representing the new structure of our statements.
-Now, statements can branch.
-Our statements are trees rather than sequences.
-So, we must describe the @tech{undead sets} as a @emph{tree} instead of
-sequence.
+Now, statements can branch at @asm-pred-lang-v4[if].
+We update the definition of @racket[undead-set-tree?] to include this case:
 
-@todo{Rewrite undead-set-tree}
 @racketblock[
 (define (undead-set? x)
   (and (list? x)
@@ -858,7 +882,7 @@ sequence.
   (match ust
     [(? undead-set?) #t]
     [(list (? undead-set?) (? undead-set-tree?) (? undead-set-tree?)) #t]
-    [`(,(? undead-set?) ...) #t]
+    [`(,(? undead-set-tree?) ... (? undead-set-tree?)) #t]
     [else #f]))
 ]
 
@@ -871,55 +895,68 @@ interp. a set of undead alocs at a particular instruction
 Undead-set-tree is one of:
 - Undead-set
 - (list Undead-set Undead-set-tree Undead-set-tree)
-- (listof Undead-set)
+- (listof Undead-set-tree)
 WARNING: datatype is non-canonical since Undead-set-tree can be an
          Undead-set, so second and third case can overlap.
          An Undead-set-tree is meant to be traversed simultaneously with an
          Undead-block-lang/tail, so this ambiguity is not a problem.
 interp. a tree of Undead-sets.  The structure of the tree mirrors the
-  structure of a Block-locals-lang tail. There are three kinds of sub-trees:
+  structure of a Asm-pred-lang. There are three kinds of sub-trees:
 (1) an instruction node is simply an undead sets;
 (2) an if node has an undead-set for the condition and two branch sub-trees.
-(3) a begin node is a list of undead sets, culminating in a sub-tree;
+(3) a begin node is a list of undead set trees, culminating in a sub-tree;
 }
 
 @todo{Changed this example to remove jump. Should also just compute the example instead of manually doing it.}
 For example, consider the following @tech{Undead-set-tree}.
 @racketblock[
-`((x.1)
-  (x.1 y.2)
-  ((x.1 y.2 b.3)
-   (x.1 y.2 c.4 b.3)
-   ((x.1 y.2 c.4)
-    ()
-    ((y.2 c.4)
-     (x.1 y.2)))))
-]
-This corresponds to the following @object-code{tail}.
-@racketblock[
-`(begin
-   (set! x.1 5)
-   (set! y.2 x.1)
-   (begin
-      (set! b.3 (+ x.1 y.2))
-      (set! c.4 b.3)
-      (if (eq? c.4 b.3)
-          (halt c.4)
+(unsyntax
+ (info-ref
+   (cadr
+    (undead-analysis
+     `(module
+          ((locals (x.1 y.2 b.3 c.4)))
           (begin
+            (set! x.1 5)
+            (set! y.2 x.1)
+            (begin
+              (set! b.3 x.1)
+              (set! b.3 (+ b.3 y.2))
+              (set! c.4 b.3)
+              (if (= c.4 b.3)
+                  (halt c.4)
+                  (begin
+                    (set! x.1 c.4)
+                    (halt c.4))))))
+     ))
+   'undead-out)
+  )
+]
+This corresponds to the following @asm-pred-lang-v4[tail].
+@racketblock[
+`(module
+   ((locals (x.1 y.2 b.3 c.4)))
+   (begin
+     (set! x.1 5)
+     (set! y.2 x.1)
+     (begin
+       (set! b.3 x.1)
+       (set! b.3 (+ b.3 y.2))
+       (set! c.4 b.3)
+       (if (= c.4 b.3)
+           (halt c.4)
+           (begin
              (set! x.1 c.4)
-             (halt c.4)))))
+             (halt c.4))))))
 
 ]
-The nesting structure mirror the nesting of tails.
-We can therefore follow a simultaneously traversing two lists, similar to
-what we did in @secref[#:tag-prefixes '("a3:")]{top}.
 
 @nested[#:style 'inset
-@defproc[(undead-analysis (p asm-pred-lang-v4/locals.p?))
-         asm-pred-lang-v4/undead.p?]{
-Performs @tech{undead analysis}, compiling @tech{Asm-pred-lang v4/locals} to
-@tech{Asm-pred-lang v4/undead} by decorating programs with their @tech{undead set
-trees}.
+@defproc[(undead-analysis (p asm-pred-lang-v4/locals?))
+         asm-pred-lang-v4/undead?]{
+Performs undeadness analysis, decorating the program with
+@tech{Undead-set-tree}.
+Only the info field of the program is modified.
 }
 ]
 
@@ -933,15 +970,13 @@ control-flow.
 
 The @racket[conflict-analysis] does not change significantly.
 We simply extend the algorithm to support the new statements.
-Note that new statements only reference but never define an @tech{abstract
+Note that new statements only reference but never define an @ch2-tech{abstract
 location}.
 
 @nested[#:style 'inset
-@defproc[(conflict-analysis (p asm-pred-lang-v4/undead.p?))
-         asm-pred-lang-v4/conflicts.p?]{
-Performs @tech{conflict analysis}, compiling @tech{Asm-pred-lang v4/undead} to
-@tech{Asm-pred-lang v4/conflicts} by decorating programs with their @tech{conflict
-graph}.
+@defproc[(conflict-analysis (p asm-pred-lang-v4/undead?))
+         asm-pred-lang-v4/conflicts?]{
+Decorates a program with its @ch-ra-tech{conflict graph}.
 }
 ]
 
@@ -956,8 +991,8 @@ The allocator should run the same algorithm as before.
 Since the allocator doesn't traverse programs, it shouldn't need any changes.
 
 @nested[#:style 'inset
-@defproc[(assign-registers (p asm-pred-lang-v4/conflicts.p?))
-         asm-pred-lang-v4/assignments.p?]{
+@defproc[(assign-registers (p asm-pred-lang-v4/conflicts?))
+         asm-pred-lang-v4/assignments?]{
 Performs @tech{graph-colouring register allocation}, compiling @tech{asm-pred-lang
 v4/conflicts} to @tech{Asm-pred-lang v4/assignments} by decorating programs with
 their @tech{register assignments}.
@@ -965,18 +1000,18 @@ their @tech{register assignments}.
 ]
 
 @subsection{Replace Locations}
-Finally, we actually replace @tech{abstract locations} with @tech{physical
+Finally, we actually replace @ch2-tech{abstract locations} with @tech{physical
 locations}.
 In the process, we're free to discard the info from the analyses.
 
 @bettergrammar*-diff[#:include (info) asm-pred-lang-v4/assignments asm-pred-lang-v4]
 
 @nested[#:style 'inset
-@defproc[(replace-locations [p asm-pred-lang-v4/assignments.p?])
-         nested-asm-lang-v4.p?]{
+@defproc[(replace-locations [p asm-pred-lang-v4/assignments?])
+         nested-asm-lang-v4?]{
 Compiles @tech{Asm-pred-lang v4/assignments} to @tech{Nested-asm-lang v4} by replacing all
-@tech{abstract location} with @tech{physical locations} using the assignment
-described in the @object-code{assignment} info field.
+@ch2-tech{abstract location} with @tech{physical locations} using the assignment
+described in the @asm-pred-lang-v4[assignment] info field.
 }
 ]
 
@@ -1002,8 +1037,8 @@ The following two programs are equal:
 @todo{Seems like we could easily deal with that one.}
 
 @nested[#:style 'inset
-@defproc[(select-instructions (p imp-cmf-lang-v4.p))
-         asm-pred-lang-v4.p]{
+@defproc[(select-instructions (p imp-cmf-lang-v4?))
+         asm-pred-lang-v4?]{
 Compiles @tech{Imp-cmf-lang v4} to @tech{Asm-pred-lang v4}, selecting
 appropriate sequences of abstract assembly instructions to implement the
 operations of the source language.
@@ -1016,14 +1051,14 @@ defined below.
 @bettergrammar*-diff[imp-cmf-lang-v4 imp-mf-lang-v4]
 
 @nested[#:style 'inset
-@defproc[(canonicalize-bind (p imp-mf-lang-v4.p))
-         imp-cmf-lang-v4.p]{
+@defproc[(canonicalize-bind (p imp-mf-lang-v4?))
+         imp-cmf-lang-v4?]{
 Compiles @tech{Imp-mf-lang v4} to @tech{Imp-cmf-lang v4}, pushing
 @imp-mf-lang-v3[set!] under @imp-mf-lang-v4[begin] and @imp-mf-lang-v4[if] so
 that the right-hand-side of each @imp-mf-lang-v3[set!] is simple value-producing
 operation.
 
-This canonicalizes @tech{Imp-mf-lang v4} with respet to the equations
+This canonicalizes @tech{Imp-mf-lang v4} with respect to the equations
 @tabular[
 (list
  (list
@@ -1059,8 +1094,8 @@ run-time representation of the value that a comparison operation produces, @ie
 we don't have booleans.
 
 @nested[#:style 'inset
-@defproc[(sequentialize-let (p values-unique-lang-v4.p?))
-         imp-mf-lang-v4.p?]{
+@defproc[(sequentialize-let (p values-unique-lang-v4?))
+         imp-mf-lang-v4?]{
 Compiles @tech{Values-unique-lang v4} to @tech{Imp-mf-lang v4} by picking a
 particular order to implement @values-unique-lang-v4[let] expressions using
 @imp-mf-lang-v4[set!].
@@ -1075,8 +1110,8 @@ We defined @deftech{Values-lang v4} below.
 @bettergrammar*-diff[values-unique-lang-v4 values-lang-v4]
 
 @nested[#:style 'inset
-@defproc[(uniquify (p values-lang-v4.p?))
-          values-unique-lang-v4.p?]{
+@defproc[(uniquify (p values-lang-v4?))
+          values-unique-lang-v4?]{
 Compiles @tech{Values-lang v4} to @tech{Values-unique-lang v4} by resolving
 @ch3-tech{lexical identifiers} into unique @ch2-tech{abstract locations}.
 }
@@ -1086,12 +1121,11 @@ Compiles @tech{Values-lang v4} to @tech{Values-unique-lang v4} by resolving
 @todo{Anything I want to say here? check-values-lang? interpreter?}
 
 @nested[#:style 'inset
-@defproc[(interp-values-lang (p Values-lang-v4.p))
-         (integer-in/c 0 255)]{
-Interpret the @tech{Values-lang v4} program @racket[p] as a value, returning the
-exit code for @racket[p].
+@defproc[(interp-values-lang (p values-lang-v4?))
+         int64?]{
+Interpret the @tech{Values-lang v4} program @racket[p] as a value.
 For all @racket[p], the value of @racket[(interp-values-lang p)] should equal
-@racket[(interp-paren-x64 (compile p))] and @racket[(execute p)].
+to @racket[(execute p)].
 }
 ]
 

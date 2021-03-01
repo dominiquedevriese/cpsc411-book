@@ -4,7 +4,8 @@
   (except-in "a2.scrbl" doc)
   (except-in "../chapter/structured-control.scrbl" doc)
   (for-label cpsc411/compiler-lib)
-  (for-label cpsc411/v1-reference/a4-franken-solution))
+  (for-label cpsc411/reference/a4-solution)
+  cpsc411/langs/v4)
 
 @(reset-exercise-counter!)
 @(reset-challenge-counter!)
@@ -61,6 +62,8 @@ replace-locations
 conflict-analysis
 uncover-locals
 select-instructions
+canonicalize-bind
+sequentialize-let
 uniquify
 ]
 
@@ -135,9 +138,9 @@ to implement the new instructions jump and compare instructions that don't
 exist in @ch1-tech{x64} by instruction sequences that are valid in
 @ch4-tech{Paren-x64 v4}.
 
-It will be tricky to implement the instruction @object-code{(compare addr addr)}
-with only one auxiliary register.
-You can do it in four @ch4-tech{Paren-x64 v4} instructions.
+@;It will be tricky to implement the instruction @object-code{(compare addr addr)}
+@;with only one auxiliary register.
+@;You can do it in four @ch4-tech{Paren-x64 v4} instructions.
 
 Remember to use the auxiliary registers from
 @racket[current-patch-instructions-registers].
@@ -148,12 +151,12 @@ Remember to use the auxiliary registers from
 }
 
 @challenge{
-In @ch4-tech{Paren-asm v4}, it's unnecessary to have a jump when the target of the
+In @ch4-tech{Para-asm-lang v4}, it's unnecessary to have a jump when the target of the
 jump is the next instruction.
 Design and implement an optimization pass, called @racket[inline-jump], that
 eliminates these unnecessary jumps.
-The source language is @ch4-tech{Paren-asm v4} and target is
-@ch4-tech{Paren-asm v4}
+The source language is @ch4-tech{Para-asm-lang v4} and target is
+@ch4-tech{Para-asm-lang v4}
 }
 
 @challenge{
@@ -180,11 +183,29 @@ any nested @object-code{tail}s and replaces those nested @object-code{tail}s
 with jumps.
 
 You may want to use @racket[fresh-label] from @racketmodname[cpsc411/compiler-lib].
+
+In Racket, you can pass multiple return values using @racket[values], and bind them using
+@racket[let-values], @racket[let-values*], or @racket[define-values].
+You should use @racket[fresh-label] to generate new unique labels.
+@todo{elaborate}
+
+Alternatively, you may simply use mutable state.
+See @racket[box], @racket[set-box!], and @racket[unbox].
 }
 
 @exercise{
 Design and implement @racket[optimize-predicates].
 You are not required to generate the "best" code (whatever that means).
+
+You can do a better job by passing an environment and recording
+known values, or sets of possible values, in @nested-asm-lang-v4[set!]
+statements, although in general the value may be "unknown".
+
+You can do an even better job by defining an abstract interpretation for each
+relational and binary operator that attempts to compute a value even when one
+operand may be unknown.
+Abstracting this from the main traversal logic will give you powerful
+optimization.
 }
 
 
@@ -209,10 +230,10 @@ module with a single conflict graph.
 
 @exercise{
 Redesign and extend the implementation of @racket[undead-analysis] to collect
-@a3-tech{undead-out sets} for each block.
+@tech[#:tag-prefixes '("book:" "chp-reg-alloc:")]{undead-out sets} for each block.
 
 Only the @object-code{info} field of each block of the output program is
-modified, with the addition of the the @a3-tech{undead-out set}.
+modified, with the addition of the the @tech[#:tag-prefixes '("book:" "chp-reg-alloc:")]{undead-out set}.
 }
 
 @exercise{

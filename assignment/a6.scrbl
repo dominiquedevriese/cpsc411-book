@@ -3,7 +3,7 @@
 @(require
   (except-in "../chapter/return.scrbl" doc)
   (for-label cpsc411/compiler-lib)
-  (for-label cpsc411/reference/a5-solution)
+  (for-label cpsc411/reference/a6-solution)
   cpsc411/langs/v6)
 
 @(reset-exercise-counter!)
@@ -24,10 +24,12 @@ contexts.
 
 This assignment is due @(due 'a6).
 
+You can use the interrogator to get limited access to the reference solution:
+@url{https://www.students.cs.ubc.ca/~cs-411/2020w2/interrogator.cgi?an=a6}.
 
 @todo{Design component?}
 
-@subsubsub*section{Learning Objectives}
+@;subsubsub*section{Learning Objectives}
 @todo{Update these}
 @;@itemlist[
 @;@item{Students should be able to identify the advantages of calling
@@ -63,6 +65,7 @@ impose-calling-conventions
 undead-analysis
 expose-basic-blocks
 implement-fvars
+assign-registers
 ]
 
 @emph{Minor modifications to passes}
@@ -75,7 +78,6 @@ canonicalize-bind
 select-instructions
 uncover-locals
 conflict-analysis
-assign-registers
 replace-locations
 ]
 
@@ -86,6 +88,13 @@ resolve-predicates
 patch-instructions
 generate-x64
 ]
+
+@emph{Removed passes}
+@typeset-passlist[
+assign-homes
+assign-homes-opt
+]
+
 
 @section{Reading}
 The reading for this week is @Secref[#:tag-prefixes '("book:"
@@ -121,7 +130,18 @@ convention registers.
 
 @exercise{Extend @racket[uncover-locals] with support for return points.}
 
-@exercise{Extend @racket[undead-analysis] with support for return points.}
+@exercise{Extend @racket[undead-analysis] with support for return points.
+
+@margin-note{
+Hint:
+
+The simplest way to get the @asm-pred-lang-v6/undead[call-undead] locations is
+to use a single mutable variable that is local to the helper function that
+processes definition.
+See @racket[box]
+}
+
+}
 
 @exercise{Extend @racket[conflict-analysis] with support for return points.}
 
@@ -188,3 +208,8 @@ You may want to use @racket[fvar->addr].
 You shouldn't assume that the @racket[current-frame-base-pointer-register] is
 @paren-x64-v6[rbp], and should use the parameter instead.
 }
+
+@exercise{Modify @racket[patch-instructions] to support instructions with
+@para-asm-lang-v6[addr]s instead of @nested-asm-lang-fvars-v6[fvars].}
+
+@exercise{Extend @racket[generate-x64] to support the the new @paren-x64-v6[binop].}
