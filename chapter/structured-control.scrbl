@@ -178,7 +178,7 @@ instead implement a limited form of structured control-flow.
 @section{Exposing Control-Flow Primitives}
 When we want to add a new feature to the source language, we must always ask if
 there's some existing abstraction in the target language that we can use.
-So far, @ch2-tech{Paren-x64 v2} exposes only intructions to move data between
+So far, @ch2-tech{Paren-x64 v2} exposes only instructions to move data between
 locations and perform simple arithmetic computation on locations.
 This is insufficiently expressive, so we must reach even lower and expose new
 primitives from the machine.
@@ -288,7 +288,7 @@ design problem.
 We design a simple linker for @tech{Paren-x64 v4} to give you a rough idea of
 how the operating system's linker works.
 We use a low-level linking implementation that is similar to the operating
-systems linker: we first resolve all labels to their address in memory (in our
+system's linker: we first resolve all labels to their address in memory (in our
 case, their index in the instruction sequence) and then implement jumps by
 simply setting a program counter to the instruction's address.
 
@@ -352,7 +352,7 @@ execution as position in the list @racket[code].
 ]
 
 @subsection{Finding the next abstraction boundary}
-Having exposing @ch1-tech{x64} features to our compiler internal languages, we
+Having exposed @ch1-tech{x64} features to our compiler internal languages, we
 now need to find the right abstraction boundary for abstracting away from the
 low-level representation of control-flow---labels and jumps---and introducing a
 more structured form of control flow, @object-code{if}.
@@ -441,7 +441,7 @@ instructions and an auxiliary register from
 @section{New Abstractions: Blocks and Predicates}
 Working our way up the pipeline, the next language from the previous version of
 our compiler is the @ch2-tech{Asm-lang v2} family of languages.
-Recall that this family of language of languages includes several
+Recall that this family of languages includes several
 @ch2-tech{administrative languages}, including @ch2-tech{Asm-lang v2/assignments}.
 This is the output language of the register allocator.
 
@@ -486,7 +486,7 @@ three?}
 @todo{These design digressions are opportunities for design exercises.}
 @todo{This digression is a bit early, isn't it?}
 
-To simplify reasoning about programs with control flow, we can organizing code
+To simplify reasoning about programs with control flow, we can organize code
 into @deftech{basic blocks}, labeled blocks where control can only enter the
 beginning of the block and must exit the end of the block.
 This gives us more structure on which to hang assumptions, and can make more
@@ -747,7 +747,7 @@ When you find an @nested-asm-lang-v4[if] in predicate position, you'll need to
 generate two new basic blocks, and rearrange the current true and false labels.
 
 The transformer for effects should take care to unnest @nested-asm-lang-v4[begin]
-statments.
+statements.
 This is not really related to exposing basic blocks, but it is trivial to deal
 with using the right abstraction, and so does not warrant a separate compiler
 pass.
